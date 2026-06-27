@@ -7,49 +7,43 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Отменяет старую сборку если запустили новую
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         config:
-          - name: 🖥️ Windows
-            os: windows-latest
-            target: Win64
-
-          - name: 📱 Android ARM64
-            os: ubuntu-latest
-            target: Android64
-
-          - name: 📱 Android ARM32
-            os: ubuntu-latest
-            target: Android32
+          - { name: "🖥️ Windows",      os: windows-latest, target: Win64     }
+          - { name: "📱 Android ARM64", os: ubuntu-latest,  target: Android64 }
+          - { name: "📱 Android ARM32", os: ubuntu-latest,  target: Android32 }
 
     name: ${{ matrix.config.name }}
     runs-on: ${{ matrix.config.os }}
 
     steps:
-      - name: 📥 Скачать код
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 🔨 Собрать мод
+      - name: 🔨 Собрать
         uses: geode-sdk/build-geode-mod@main
         with:
           target: ${{ matrix.config.target }}
           combine: true
 
   package:
-    name: 📦 Объединить в один .geode файл
+    name: 📦 Упаковать .geode
     runs-on: ubuntu-latest
     needs: build
 
     steps:
-      - name: 🔗 Объединить билды
-        uses: geode-sdk/build-geode-mod/combine@main
+      - uses: geode-sdk/build-geode-mod/combine@main
         id: build
 
-      - name: 📤 Загрузить готовый .geode
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: GMDPE-всe-платформы
+          name: GMDPE
           path: ${{ steps.build.outputs.build-output }}
