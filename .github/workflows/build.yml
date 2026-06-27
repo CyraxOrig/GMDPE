@@ -2,213 +2,54 @@ name: Build GMDPE
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
-  # Позволяет запускать вручную с кнопки на GitHub
+    branches: [main]
   workflow_dispatch:
 
 jobs:
-  # ─────────────────────────────────────────────────────────────
-  #  Windows — собирает .dll (x64)
-  # ─────────────────────────────────────────────────────────────
-  build-windows:
-    name: 🖥️ Windows (x64)
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: 🖥️ Windows
+            os: windows-latest
+            target: Win64
+
+          - name: 📱 Android ARM64
+            os: ubuntu-latest
+            target: Android64
+
+          - name: 📱 Android ARM32
+            os: ubuntu-latest
+            target: Android32
+
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
 
     steps:
-      - name: 📥 Скачать код репозитория
+      - name: 📥 Скачать код
         uses: actions/checkout@v4
 
-      - name: 🔧 Установить Geode CLI
-        uses: geode-sdk/cli/.github/actions/setup@main
-
-      - name: 📦 Установить Geode SDK
-        uses: geode-sdk/sdk/.github/actions/setup@main
-
-      - name: 🏗️ Настроить CMake (конфигурация)
-        run: |
-          cmake -B build `
-            -DCMAKE_BUILD_TYPE=Release `
-            -G "Ninja"
-        shell: pwsh
-
-      - name: ⚙️ Собрать мод
-        run: cmake --build build --config Release --parallel
-        shell: pwsh
-
-      - name: 🔍 Найти .geode файл
-        id: find_geode
-        run: |
-          $file = Get-ChildItem -Recurse -Filter "*.geode" | Select-Object -First 1
-          echo "GEODE_PATH=$($file.FullName)" >> $env:GITHUB_OUTPUT
-          echo "GEODE_NAME=$($file.Name)" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-
-      - name: 📤 Загрузить артефакт (Windows)
-        uses: actions/upload-artifact@v4
+      - name: 🔨 Собрать мод
+        uses: geode-sdk/build-geode-mod@main
         with:
-          name: gmdpe-windows
-          path: ${{ steps.find_geode.outputs.GEODE_PATH }}
-          if-no-files-found: error
+          target: ${{ matrix.config.target }}
+          combine: true
 
-  # ─────────────────────────────────────────────────────────────
-  #  Android ARM64 — основная архитектура (.so)
-  # ─────────────────────────────────────────────────────────────
-  build-android64:
-    name: 📱 Android ARM64 (64-bit)
+  package:
+    name: 📦 Объединить в один .geode файл
     runs-on: ubuntu-latest
+    needs: build
 
     steps:
-      - name: 📥 Скачать код репозитория
-        uses: actions/checkout@v4
+      - name: 🔗 Объединить билды
+        uses: geode-sdk/build-geode-mod/combine@main
+        id: build
 
-      - name: 🔧 Установить Geode CLI
-        uses: geode-sdk/cli/.github/actions/setup@main
-
-      - name: 📦 Установить Geode SDK
-        uses: geode-sdk/sdk/.github/actions/setup@main
-
-      - name: 🤖 Установить Android NDK r26b
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r26b
-          add-to-path: true
-
-      - name: 📥 Скачать бинарники Geode для Android64
-        run: geode sdk install-binaries -p android64
-
-      - name: 🏗️ Настроить CMake для Android ARM64
-        run: |
-          cmake -B build-android64 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-23 \
-            -DANDROID_STL=c++_shared \
-            -DGEODE_TARGET_PLATFORM=android64 \
-            -G Ninja
-
-      - name: ⚙️ Собрать мод (ARM64)
-        run: cmake --build build-android64 --config Release --parallel
-
-      - name: 🔍 Найти .geode файл
-        id: find_geode
-        run: |
-          FILE=$(find build-android64 -name "*.geode" | head -n 1)
-          echo "GEODE_PATH=$FILE" >> $GITHUB_OUTPUT
-
-      - name: 🔍 Показать размер .so файла
-        run: |
-          echo "=== Содержимое .geode архива ==="
-          unzip -l ${{ steps.find_geode.outputs.GEODE_PATH }}
-          echo ""
-          echo "=== Размер .geode файла ==="
-          du -sh ${{ steps.find_geode.outputs.GEODE_PATH }}
-
-      - name: 📤 Загрузить артефакт (Android64)
+      - name: 📤 Загрузить готовый .geode
         uses: actions/upload-artifact@v4
         with:
-          name: gmdpe-android64
-          path: ${{ steps.find_geode.outputs.GEODE_PATH }}
-          if-no-files-found: error
-
-  # ─────────────────────────────────────────────────────────────
-  #  Android ARM32 — для старых телефонов (.so 32-bit)
-  # ─────────────────────────────────────────────────────────────
-  build-android32:
-    name: 📱 Android ARM32 (32-bit, старые телефоны)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 📥 Скачать код репозитория
-        uses: actions/checkout@v4
-
-      - name: 🔧 Установить Geode CLI
-        uses: geode-sdk/cli/.github/actions/setup@main
-
-      - name: 📦 Установить Geode SDK
-        uses: geode-sdk/sdk/.github/actions/setup@main
-
-      - name: 🤖 Установить Android NDK r26b
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r26b
-          add-to-path: true
-
-      - name: 📥 Скачать бинарники Geode для Android32
-        run: geode sdk install-binaries -p android32
-
-      - name: 🏗️ Настроить CMake для Android ARM32
-        run: |
-          cmake -B build-android32 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=armeabi-v7a \
-            -DANDROID_PLATFORM=android-23 \
-            -DANDROID_STL=c++_shared \
-            -DGEODE_TARGET_PLATFORM=android32 \
-            -G Ninja
-
-      - name: ⚙️ Собрать мод (ARM32)
-        run: cmake --build build-android32 --config Release --parallel
-
-      - name: 🔍 Найти .geode файл
-        id: find_geode
-        run: |
-          FILE=$(find build-android32 -name "*.geode" | head -n 1)
-          echo "GEODE_PATH=$FILE" >> $GITHUB_OUTPUT
-
-      - name: 📤 Загрузить артефакт (Android32)
-        uses: actions/upload-artifact@v4
-        with:
-          name: gmdpe-android32
-          path: ${{ steps.find_geode.outputs.GEODE_PATH }}
-          if-no-files-found: error
-
-  # ─────────────────────────────────────────────────────────────
-  #  Финальный шаг — собрать всё в один Release
-  # ─────────────────────────────────────────────────────────────
-  release:
-    name: 🚀 Создать Release
-    # Запускается только при пуше тега v* (например v1.0.0)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-windows, build-android64, build-android32]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 📥 Скачать все артефакты
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-
-      - name: 📋 Показать список файлов
-        run: find artifacts/ -type f
-
-      - name: 🚀 Опубликовать GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "GMDPE ${{ github.ref_name }}"
-          body: |
-            ## GMDPE — Geometry More Dash Physical Extension
-            **Автор:** CyraxOrig
-            **Версия:** ${{ github.ref_name }}
-
-            ### 📦 Файлы
-            - `gmdpe-windows` — для ПК (Windows x64)
-            - `gmdpe-android64` — для телефонов ARM64 (большинство современных)
-            - `gmdpe-android32` — для старых телефонов ARM32
-
-            ### 📲 Установка
-            Скопируй `.geode` файл в папку `geode/mods/` своей игры.
-          files: |
-            artifacts/**/*.geode
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+          name: GMDPE-всe-платформы
+          path: ${{ steps.build.outputs.build-output }}
